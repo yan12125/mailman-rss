@@ -22,13 +22,15 @@
 
 from bs4 import BeautifulSoup
 import cgi
+import datetime
 import gzip
+import io
 import re
+from logging import getLogger
 import optparse
 import os
 import mailbox
 from email.header import decode_header, make_header
-from io import BytesIO
 import sys
 import tempfile
 from future.standard_library import hooks
@@ -36,6 +38,8 @@ from future.standard_library import hooks
 with hooks():
     from urllib.parse import urlparse
     from urllib.request import urlopen
+
+logger = getLogger(__name__)
 
 def get_parser():
     parser = optparse.OptionParser(usage="usage: %prog [options] <archive url>")
@@ -66,7 +70,7 @@ class MailmanArchive:
         self.archive_url = archive_url
         archive = fetch(archive_url)
 
-        self._soup = BeautifulSoup(archive, "lxml")
+        self._soup = BeautifulSoup(archive, "html.parser")
 
     def get_title(self):
         return self._soup.html.head.title.string
@@ -77,7 +81,7 @@ class MailmanArchive:
         (fd, tmpfile) = tempfile.mkstemp()
 
         fd = os.fdopen(fd, "w+b")
-        data = gzip.GzipFile(fileobj=BytesIO(data_gz)).read()
+        data = gzip.GzipFile(fileobj=io.BytesIO(data_gz)).read()
         fd.write(data)
         fd.close()
 
@@ -102,48 +106,55 @@ class MailmanArchive:
         return ret
 
 def get_part_field(part, name):
-    io = StringIO.StringIO(part)
+    fp = io.StringIO(part)
 
-    for line in io.readlines():
+    for line in fp.readlines():
         if line.lower().startswith(name):
             parts = line.split(":", 1)
             return parts[1].strip()
 
-def printrss(archive, mails):
-    print('<rss version="2.0">')
-    print('<channel>')
+def printrss(archive, mails, fp=io.StringIO()):
+    print('<rss version="2.0">', file=fp)
+    print('<channel>', file=fp)
 
     title = archive.get_title()
     if title:
-        print('<title>%s</title>' % cgi.escape(title))
-        print('<description>%s</description>' % cgi.escape(title))
+        print('<title>%s</title>' % cgi.escape(title), file=fp)
+        print('<description>%s</description>' % cgi.escape(title), file=fp)
 
     link = archive.archive_url
-    print('<link>%s</link>' % cgi.escape(link))
+    print('<link>%s</link>' % cgi.escape(link), file=fp)
 
     for mail in mails:
-        print('<item>')
+        print('<item>', file=fp)
 
         author = mail.get("from")
         if author:
             author = author.replace(" at ", "@")
 
-            print('<author>%s</author>' % cgi.escape(author))
+            print('<author>%s</author>' % cgi.escape(author), file=fp)
+
+        date = mail.get("date")
+        if date:
+            date = cgi.escape(date)
+            print('<pubDate>%s</pubDate>' % cgi.escape(date), file=fp)
+            date = datetime.datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %z")
+            date = date.astimezone(date.tzinfo)
 
         subject = mail.get("subject")
         if subject:
             title = make_header(decode_header(cgi.escape(subject)))
-            print('<title>{}</title>'.format(title))
-
-        date = mail.get("date")
-        if date:
-            print('<pubDate>%s</pubDate>' % cgi.escape(date))
+            match = re.match(r'\[\w+ (\d+)\].*', str(title))
+            print('<title>{}</title>'.format(title), file=fp)
+            if date and match:
+                link = "{}{}/{:06d}.html".format(
+                    archive.archive_url, date.strftime("%Y-%B"), int(match.group(1)) - 1)
+                print('<link>{}</link>'.format(link), file=fp)
 
         guid = mail.get("message-id")
         if guid:
-            guid = archive.archive_url + guid.strip("<>")
-
-            print('<guid isPermaLink="false">%s</guid>' % cgi.escape(guid))
+            guid = guid.strip("<>")
+            print('<guid isPermaLink="false">%s</guid>' % cgi.escape(guid), file=fp)
 
         if mail.is_multipart():
             body = mail.get_payload(0)
@@ -157,7 +168,7 @@ def printrss(archive, mails):
 
         body = parts[0].replace("\n", "<br/>")
 
-        print('<description><![CDATA[%s]]></description>' % body)
+        print('<description><![CDATA[%s]]></description>' % body, file=fp)
 
         for part in parts[1:]:
             # include enclosures
@@ -172,12 +183,13 @@ def printrss(archive, mails):
                 o = urlparse(url)
                 if o.netloc:
                     print('<enclosure url="%s" length="%s" type="%s" />' % \
-                        (url, size, mime_type))
+                        (url, size, mime_type), file=fp)
 
-        print('</item>')
+        print('</item>', file=fp)
 
-    print('</channel>')
-    print('</rss>')
+    print('</channel>', file=fp)
+    print('</rss>', file=fp)
+    return
 
 def main():
     parser = get_parser()
@@ -212,7 +224,7 @@ def main():
     if len(mails) > options.count:
         mails = mails[:options.count]
 
-    printrss(archive, mails)
+    printrss(archive, mails, fp=sys.stdout)
 
 if __name__ == "__main__":
     try:
