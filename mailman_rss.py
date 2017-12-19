@@ -146,12 +146,9 @@ def printrss(archive, mails, fp=None, timezone=0):
 
         if date:
             print('<pubDate>%s</pubDate>' % cgi.escape(date), file=fp)
-            try:
-                date = datetime.datetime.strptime(
-                    date, "%a, %d %b %Y %H:%M:%S %z")
-            except ValueError:
-                date = datetime.datetime.strptime(
-                    date, "%a, %d %b %Y %H:%M:%S %z (%Z)")
+            date = datetime.datetime.strptime(
+                re.sub(r'\s\(\w+\)$', '', date),
+                "%a, %d %b %Y %H:%M:%S %z")
             date = date.astimezone(date.tzinfo)
 
         if subject:
