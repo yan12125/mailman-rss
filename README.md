@@ -22,6 +22,8 @@ Options:
                         number of messages to convert to rss
   -e ENCODING, --encoding=ENCODING
                         email message encoding, default ascii
+  -z TIMEZONE, --timezone=TIMEZONE
+                        default timezone, default 0
 ```
 
 Example:

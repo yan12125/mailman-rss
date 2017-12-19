@@ -4,8 +4,9 @@ from __future__ import print_function
 from future.standard_library import hooks
 from bs4 import BeautifulSoup
 import cgi
+import datetime
 from email.header import decode_header, make_header
-from email.utils import formatdate, parsedate
+from email.utils import formatdate
 import gzip
 import io
 from logging import getLogger
@@ -31,6 +32,8 @@ def get_parser():
                       help="number of messages to convert to rss")
     parser.add_option("-e", "--encoding", default="ascii", type="str",
                       help="email message encoding, default ascii")
+    parser.add_option("-z", "--timezone", default=0, type="int",
+                      help="default timezone, default 0")
     return parser
 
 
@@ -102,7 +105,9 @@ def get_part_field(part, name):
             return parts[1].strip()
 
 
-def printrss(archive, mails, fp=io.StringIO()):
+def printrss(archive, mails, fp=None, timezone=0):
+    if not fp:
+        fp = io.StringIO()
     print('<?xml version="1.0" encoding="UTF-8" ?>', file=fp)
     print('<rss version="2.0">', file=fp)
     print('<channel>', file=fp)
@@ -128,8 +133,10 @@ def printrss(archive, mails, fp=io.StringIO()):
             if date:
                 print('<pubDate>%s</pubDate>' % cgi.escape(date), file=fp)
             else:
+                dt = datetime.datetime.now(datetime.timezone(
+                    datetime.timedelta(hours=timezone)))
                 print('<pubDate>%s</pubDate>' % cgi.escape(
-                    formatdate()), file=fp)
+                    formatdate(dt)), file=fp)
             pubdate_rendered = True
 
         print('<item>', file=fp)
@@ -139,7 +146,13 @@ def printrss(archive, mails, fp=io.StringIO()):
 
         if date:
             print('<pubDate>%s</pubDate>' % cgi.escape(date), file=fp)
-            date = parsedate(date)
+            try:
+                date = datetime.datetime.strptime(
+                    date, "%a, %d %b %Y %H:%M:%S %z")
+            except ValueError:
+                date = datetime.datetime.strptime(
+                    date, "%a, %d %b %Y %H:%M:%S %z (%Z)")
+            date = date.astimezone(date.tzinfo)
 
         if subject:
             title = make_header(decode_header(cgi.escape(subject)))
@@ -147,8 +160,8 @@ def printrss(archive, mails, fp=io.StringIO()):
             print('<title>{}</title>'.format(title), file=fp)
             if date and match:
                 link = "{}{}/{:06d}.html".format(
-                    archive.archive_url, time.strftime("%Y-%B", date),
-                    int(match.group(1)) - 1)
+                    archive.archive_url, date.strftime("%Y-%B"),
+                    int(match.group(1)))
                 print('<link>{}</link>'.format(link), file=fp)
 
         if guid:
@@ -186,7 +199,7 @@ def printrss(archive, mails, fp=io.StringIO()):
 
     print('</channel>', file=fp)
     print('</rss>', file=fp)
-    return
+    return fp
 
 
 def main():
@@ -229,7 +242,7 @@ def main():
     if len(mails) > options.count:
         mails = mails[:options.count]
 
-    printrss(archive, mails, fp=sys.stdout)
+    printrss(archive, mails, fp=sys.stdout, timezone=options.timezone)
 
 
 if __name__ == "__main__":
