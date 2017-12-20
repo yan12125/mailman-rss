@@ -158,7 +158,7 @@ def printrss(archive, mails, fp=None, timezone=0):
             if date and match:
                 link = "{}{}/{:06d}.html".format(
                     archive.archive_url, date.strftime("%Y-%B"),
-                    int(match.group(1)))
+                    int(match.group(1)) - 1)
                 print('<link>{}</link>'.format(link), file=fp)
 
         if guid:
