@@ -3,6 +3,7 @@ from __future__ import print_function, unicode_literals
 from future.standard_library import hooks
 from base64 import b32encode
 from bs4 import BeautifulSoup
+from collections import namedtuple
 from email.header import decode_header, make_header
 from hashlib import sha1
 from logging import getLogger
@@ -96,6 +97,10 @@ class MailmanArchive(object):
                         mbox.get_string(index))
 
 
+class Attachment(namedtuple("_Attachment", "url, mime_type, size")):
+    pass
+
+
 class MailmanMessage(mailbox.mboxMessage, object):
     """
     Mail message that wraps `mailbox.mboxMessage`.
@@ -174,7 +179,7 @@ class MailmanMessage(mailbox.mboxMessage, object):
             url = self._get_part_field(part, "url")
             if mime_type and size and url:
                 if urlparse(url).netloc:
-                    attachments.append((url, mime_type, size))
+                    attachments.append(Attachment(url, mime_type, size))
         return attachments
 
     def _get_part_field(self, part, name):
