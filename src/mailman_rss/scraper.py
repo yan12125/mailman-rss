@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import print_function
+from __future__ import print_function, unicode_literals
 from future.standard_library import hooks
 from base64 import b32encode
 from bs4 import BeautifulSoup
@@ -110,13 +110,13 @@ class MailmanMessage(mailbox.mboxMessage, object):
     def author(self):
         """Message sender name"""
         value = self.get("from")
-        return html.escape(value) if value else None
+        return value if value else None
 
     @property
     def subject(self):
         """Message subject"""
         value = self.get("subject")
-        return make_header(decode_header(value)) if value else None
+        return str(make_header(decode_header(value))) if value else None
 
     @property
     def date(self):

@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-from __future__ import print_function
+from __future__ import print_function, unicode_literals
 from email.utils import formatdate
 from html import escape
 from datetime import datetime
 import dateutil
-import io
 from logging import getLogger
 import xml.dom.minidom
 
@@ -13,21 +12,19 @@ logger = getLogger(__file__)
 
 
 class RSSWriter(object):
-    def __init__(self, fp=None, max_items=25, language=None):
+    """  """
+    def __init__(self, fp, max_items=25, language=None):
         self.max_items = max_items
         self.language = language
         logger.debug("{}: {} max items".format(
             self.__class__.__name__, max_items))
 
-        if not fp:
-            self.filename = None
-            self.fp = io.StringIO()
-        elif hasattr(fp, "write"):
+        if hasattr(fp, "write"):
             self.filename = None
             self.fp = fp
         else:
             self.filename = fp
-            self.fp = open(self.filename, "w")
+            self.fp = open(self.filename, "wb" if str == bytes else "w")
 
     def __del__(self):
         if self.filename:
@@ -61,18 +58,17 @@ class RSSWriter(object):
             self._add_element(channel, "language", self.language)
         title = archive.title
         if title:
-            self._add_element(channel, "title", title.string)
-            self._add_element(channel, "description", title.string)
+            self._add_element(channel, "title", str(title.string))
+            self._add_element(channel, "description", str(title.string))
         self._add_element(channel, "link", archive.archive_url)
         dt = datetime.now(tz=dateutil.tz.tzlocal())
-        dt = formatdate(dt.timestamp(), localtime=True)
-        self._add_element(channel, "pubDate", dt)
+        self._add_element(channel, "pubDate", self._format_date(dt))
 
     def _write_item(self, channel, message):
         item = self._add_element(channel, "item")
         self._add_element(item, "author", message.author)
-        self._add_element(item, "pubDate",
-                          formatdate(message.date.timestamp(), localtime=True))
+        self._add_element(item, "title", message.subject)
+        self._add_element(item, "pubDate", self._format_date(message.date))
         self._add_element(item, "guid", message.message_id,
                           isPermaLink="false")
         self._add_element(item, "description", message.body)
@@ -82,3 +78,10 @@ class RSSWriter(object):
                               url=attachment[0],
                               length=attachment[1],
                               type=attachment[2])
+
+    def _format_date(self, dt):
+        if hasattr(dt, "timestamp"):
+            return formatdate(dt.timestamp(), localtime=True)
+        else:
+            import time
+            return formatdate(time.mktime(dt.timetuple()), localtime=True)
