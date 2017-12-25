@@ -1,0 +1,84 @@
+# -*- coding: utf-8 -*-
+from __future__ import print_function
+from email.utils import formatdate
+from html import escape
+from datetime import datetime
+import dateutil
+import io
+from logging import getLogger
+import xml.dom.minidom
+
+
+logger = getLogger(__file__)
+
+
+class RSSWriter(object):
+    def __init__(self, fp=None, max_items=25, language=None):
+        self.max_items = max_items
+        self.language = language
+        logger.debug("{}: {} max items".format(
+            self.__class__.__name__, max_items))
+
+        if not fp:
+            self.filename = None
+            self.fp = io.StringIO()
+        elif hasattr(fp, "write"):
+            self.filename = None
+            self.fp = fp
+        else:
+            self.filename = fp
+            self.fp = open(self.filename, "w")
+
+    def __del__(self):
+        if self.filename:
+            self.fp.close()
+
+    def write(self, archive, pretty=True):
+        self.doc = xml.dom.minidom.Document()
+        rss = self._add_element(self.doc, "rss", version="2.0")
+        channel = self._add_element(rss, "channel")
+        self._write_header(channel, archive)
+        for index, message in enumerate(archive.iter_messages()):
+            self._write_item(channel, message)
+            if index + 1 >= self.max_items:
+                break
+        if pretty:
+            self.doc.writexml(self.fp, addindent="  ", newl="\n",
+                              encoding="utf-8")
+        else:
+            self.doc.writexml(self.fp, encoding="utf-8")
+
+    def _add_element(self, parent, name, content="", **kwargs):
+        elem = parent.appendChild(self.doc.createElement(name))
+        if content:
+            elem.appendChild(self.doc.createTextNode(escape(content)))
+        for key in kwargs:
+            elem.attributes[key] = escape(kwargs[key])
+        return elem
+
+    def _write_header(self, channel, archive):
+        if self.language:
+            self._add_element(channel, "language", self.language)
+        title = archive.title
+        if title:
+            self._add_element(channel, "title", title.string)
+            self._add_element(channel, "description", title.string)
+        self._add_element(channel, "link", archive.archive_url)
+        dt = datetime.now(tz=dateutil.tz.tzlocal())
+        dt = formatdate(dt.timestamp(), localtime=True)
+        self._add_element(channel, "pubDate", dt)
+
+    def _write_item(self, channel, message):
+        item = self._add_element(channel, "item")
+        self._add_element(item, "author", message.author)
+        self._add_element(item, "pubDate",
+                          formatdate(message.date.timestamp(), localtime=True))
+        self._add_element(item, "guid", message.message_id,
+                          isPermaLink="false")
+        self._add_element(item, "description", message.body)
+        self._add_element(item, "link", message.url)
+        for attachment in message.attachments():
+            self._add_element(item, "enclosure",
+                              url=attachment[0],
+                              length=attachment[1],
+                              type=attachment[2])
