@@ -25,6 +25,7 @@ class TestMailmanArchive(unittest.TestCase):
     def test_rsswriter(self):
         archive = MailmanArchive(ARCHIVE_URL)
         writer = RSSWriter()
+        writer.write(archive, max_items=2)
 
 
 if __name__ == "__main__":
