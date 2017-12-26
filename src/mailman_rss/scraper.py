@@ -1,184 +1,102 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function, unicode_literals
-from future.standard_library import hooks
-from base64 import b32encode
-from bs4 import BeautifulSoup
-from email.header import decode_header, make_header
-from hashlib import sha1
+from mailman_rss.mailman import MailmanArchive
+from collections import namedtuple
+from contextlib import closing
 from logging import getLogger
-import dateutil.parser
-import gzip
-import html
-import io
-import mailbox
-import requests
 import os
-import re
-import tempfile
-
-with hooks():
-    from urllib.parse import urlparse
+import sqlite3
+from datetime import datetime
+import time
 
 
-logger = getLogger(__name__)
+logger = getLogger(__file__)
 
 
-class MailmanArchive(object):
-    """
-    Mailman archive representation.
-    """
-    def __init__(self, archive_url, encoding=None):
-        self.encoding = encoding
-        self._load(archive_url)
+class HeaderScraper(object):
+    """ Mailman archive header scraper with cache storage. """
 
-    def _load(self, archive_url):
+    def __init__(self, archive_url, db_path):
         self.archive_url = archive_url
-        r = requests.get(archive_url)
-        self._soup = BeautifulSoup(r.content, "html.parser")
-        if not self.encoding:
-            self._set_encoding()
+        self.db_path = db_path
+        self._connect()
 
-    def _set_encoding(self):
-        meta = self._soup.find_all("meta", {"http-equiv": "Content-Type"})
-        if not meta:
-            self.encoding = "utf-8"
-        else:
-            self.encoding = meta[0].get("content").split("charset=")[1]
-            logger.info("Encoding set to {}".format(self.encoding))
+    def __del__(self):
+        if self._conn:
+            self._conn.close()
 
-    @property
-    def title(self):
-        return self._soup.html.head.title
+    def _connect(self):
+        self._conn = sqlite3.connect(
+            self.db_path,
+            detect_types=sqlite3.PARSE_DECLTYPES|sqlite3.PARSE_COLNAMES
+            )
+        sqlite3.dbapi2.converters['DATETIME'] = (
+            sqlite3.dbapi2.converters['TIMESTAMP'])
+        self._conn.row_factory = sqlite3.Row
+        with self._conn as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS headers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    author VARCHAR(64) NOT NULL,
+                    subject VARCHAR(256) NOT NULL,
+                    url VARCHAR(128) UNIQUE,
+                    fetched_at DATETIME NOT NULL,
+                    read_at DATETIME DEFAULT NULL
+                )""")
 
-    def iter_mboxes(self):
-        for a in self._soup.findAll("a", href=re.compile(r".*txt(.gz)?")):
-            url = a.get("href")
-            if not url.endswith(".gz"):
-                url = url + ".gz"
-            gzip_url = os.path.join(self.archive_url, url)
-            dates_url = gzip_url.replace(".txt.gz", "/date.html")
-            yield self._get_month(gzip_url, dates_url)
+    def fetch(self, max_items=10):
+        """ Fetch new posts from archive. """
+        archive = MailmanArchive(self.archive_url)
+        with self._conn as conn:
+            c = conn.cursor()
+            for index, header in enumerate(archive.iter_headers()):
+                if index >= max_items:
+                    logger.info("Max fetches reached: {}".format(index))
+                    break
 
-    def _get_month(self, gzip_url, date_url):
-        r = requests.get(date_url)
-        date_html = BeautifulSoup(r.content, "html.parser")
-        anchors = date_html.find_all(
-            "a", href=re.compile(r"^\d+\.html$"))
-        date_base_url = os.path.dirname(date_url)
-        message_urls = [os.path.join(date_base_url, a.get("href"))
-                        for a in anchors]
+                c.execute("SELECT COUNT(*) as c FROM headers WHERE url = ?",
+                          (header.url,))
+                if int(c.fetchone()[0]):
+                    # Record already fetched.
+                    logger.info("Last fetched URL: {}".format(header.url))
+                    break
+                c.execute("INSERT INTO headers "
+                          "(author, subject, url, fetched_at) "
+                          "VALUES (?, ?, ?, ?)",
+                          (header.author, header.subject, header.url,
+                          datetime.now()))
 
-        r = requests.get(gzip_url, stream=True)
-        zipped_mbox = gzip.GzipFile(fileobj=io.BytesIO(r.raw.read())).read()
-        with tempfile.NamedTemporaryFile() as f:
-            f.write(zipped_mbox)
-            f.flush()
-            mbox = mailbox.mbox(f.name)
-            if len(mbox) != len(message_urls):
-                logger.warning(
-                    "Mismatched mbox size with message urls: {} vs {}".format(
-                        len(mbox), len(message_urls)))
-            return mbox, message_urls
+    def iter_unread(self, mark_unread=False):
+        """ Iterate over unread message headers. """
+        with self._conn as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT * FROM headers
+                WHERE read_at IS NULL
+                ORDER BY fetched_at DESC
+                """)
+            for row in c.fetchall():
+                yield row
+                if mark_unread:
+                    c.execute(
+                        "UPDATE headers SET read_at = ? WHERE id = ?",
+                        (datetime.now(), row[0]))
 
-    def iter_messages(self):
-        for mbox, message_urls in self.iter_mboxes():
-            length = min(len(mbox), len(message_urls))
-            for index in reversed(range(length)):
-                if hasattr(mbox, "get_bytes"):
-                    yield MailmanMessage(
-                        self,
-                        message_urls[index],
-                        mbox.get_bytes(index).decode(self.encoding))
-                else:
-                    yield MailmanMessage(
-                        self,
-                        message_urls[index],
-                        mbox.get_string(index))
+    def iter_all(self, mark_unread=False):
+        """ Iterate over all headers. """
+        with self._conn as conn:
+            c = conn.cursor()
+            c.execute("SELECT * FROM headers")
+            for row in c.fetchall():
+                yield row
 
-
-class MailmanMessage(mailbox.mboxMessage, object):
-    """
-    Mail message that wraps `mailbox.mboxMessage`.
-    """
-
-    def __init__(self, archive, url, *args):
-        super(MailmanMessage, self).__init__(*args)
-        self._url = url
-        self._archive = archive
-
-    @property
-    def author(self):
-        """Message sender name"""
-        value = self.get("from")
-        return value if value else None
-
-    @property
-    def subject(self):
-        """Message subject"""
-        value = self.get("subject")
-        return str(make_header(decode_header(value))) if value else None
-
-    @property
-    def date(self):
-        """Message date in dateutil format"""
-        value = self.get("date")
-        return dateutil.parser.parse(value) if value else None
-
-    @property
-    def message_id(self):
-        """Message ID"""
-        return self.get("message-id")
-
-    @property
-    def url(self):
-        """Message URL"""
-        return self._url
-
-    @property
-    def body(self):
-        """Message body"""
-        return self.parts()[0]
-
-    @property
-    def stable_url(self):
-        """
-        Calculate stable URL. Not really supported in reality.
-        See https://wiki.list.org/DEV/Stable%20URLs
-        """
-        archived_at = self.get("archived-at")
-        if archived_at:
-            return archived_at
-        # Calculate stable URL
-        message_id = re.sub(r"^<(.*)>$", r"\1", self.message_id).encode(
-            "utf-8")
-        encoded_id = b32encode(sha1(message_id).digest()).decode("utf-8")
-        return os.path.join(self._archive.archive_url, encoded_id)
-
-    def parts(self):
-        if self.is_multipart():
-            body = self.get_payload(0)
-        else:
-            body = self.get_payload()
-        parts = re.split(re.compile("^-+\s+next part\s+-+$", re.MULTILINE),
-                         body)
-        return [part.strip() for part in parts]
-
-    def attachments(self):
-        """Returns a list of attachments"""
-        attachments = []
-        for part in self.parts()[1:]:
-            if "A non-text attachment was scrubbed" not in part:
-                continue
-            mime_type = self._get_part_field(part, "type")
-            size = self._get_part_field(part, "size")
-            url = self._get_part_field(part, "url")
-            if mime_type and size and url:
-                if urlparse(url).netloc:
-                    attachments.append((url, mime_type, size))
-        return attachments
-
-    def _get_part_field(self, part, name):
-        fp = io.StringIO(part)
-        for line in fp.readlines():
-            if line.lower().startswith(name):
-                return line.split(":", 1)[1].strip()
+    def count(self, unread=False):
+        """ Count the number of fetched headers. """
+        with self._conn as conn:
+            c = conn.cursor()
+            if unread:
+                c.execute(
+                    "SELECT COUNT(*) as c FROM headers WHERE read_at IS NULL")
+            else:
+                c.execute("SELECT COUNT(*) FROM headers")
+            return int(c.fetchone()[0])

@@ -41,6 +41,9 @@ setup(
         'future',
         'requests',
     ],
+    extras_require={
+        'twitter': 'python-twitter',
+    },
     include_package_data=True,
     entry_points={
         'console_scripts': ['mailman-rss=mailman_rss.__main__:main']
