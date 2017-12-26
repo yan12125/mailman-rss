@@ -18,9 +18,9 @@ import re
 import tempfile
 import itertools
 try:
-    import itertools.izip as zip
+    from itertools import izip
 except ImportError:
-    pass
+    izip = zip
 
 with hooks():
     from urllib.parse import urlparse
@@ -98,7 +98,8 @@ class MailmanArchive(object):
 
 
     def iter_messages(self):
-        for mbox, headers in zip(self.iter_mboxes(), self.iter_header_list()):
+        for mbox, headers in izip(self.iter_mboxes(),
+                                  self.iter_header_list()):
             length = min(len(mbox), len(headers))
             if len(mbox) != len(headers):
                 logger.warning(
