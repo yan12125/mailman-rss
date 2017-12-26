@@ -18,7 +18,7 @@ def readme(filename):
 setup(
     name='mailman-rss',
     version=get_version(),
-    description='Convert PSD file to SVG file',
+    description='Scrape mailman archive and convert to rss',
     long_description=readme('README.rst'),
     classifiers=[
         'Development Status :: 3 - Alpha',
