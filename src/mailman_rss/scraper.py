@@ -10,7 +10,7 @@ from datetime import datetime
 import time
 
 
-logger = getLogger()
+logger = getLogger(__file__)
 
 
 class HeaderScraper(object):
@@ -51,11 +51,12 @@ class HeaderScraper(object):
             c = conn.cursor()
             for index, header in enumerate(archive.iter_headers()):
                 if index >= max_items:
+                    logger.info("Max fetches reached: {}".format(index))
                     break
 
                 c.execute("SELECT COUNT(*) as c FROM headers WHERE url = ?",
                           (header.url,))
-                if c.fetchone()[0]:
+                if int(c.fetchone()[0]):
                     # Record already fetched.
                     logger.info("Last fetched URL: {}".format(header.url))
                     break
@@ -72,7 +73,7 @@ class HeaderScraper(object):
             c.execute("""
                 SELECT * FROM headers
                 WHERE read_at IS NULL
-                ORDER BY fetched_at ASC
+                ORDER BY fetched_at DESC
                 """)
             for row in c.fetchall():
                 yield row

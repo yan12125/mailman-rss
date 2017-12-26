@@ -40,6 +40,7 @@ setup(
         'python-dateutil',
         'future',
         'requests',
+        'python-twitter',
     ],
     include_package_data=True,
     entry_points={

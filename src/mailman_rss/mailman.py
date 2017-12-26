@@ -17,6 +17,10 @@ import os
 import re
 import tempfile
 import itertools
+try:
+    import itertools.izip as zip
+except ImportError:
+    pass
 
 with hooks():
     from urllib.parse import urlparse
@@ -83,14 +87,18 @@ class MailmanArchive(object):
             mbox = mailbox.mbox(f.name)
             return mbox
 
-    def iter_headers(self):
+    def iter_headers(self, reverse=True):
         for headers in self.iter_header_list():
-            for header in headers:
-                yield header
+            if reverse:
+                for header in reversed(headers):
+                    yield header
+            else:
+                for header in headers:
+                    yield header
+
 
     def iter_messages(self):
-        for mbox, headers in itertools.izip(self.iter_mboxes(),
-                                            self.iter_header_list()):
+        for mbox, headers in zip(self.iter_mboxes(), self.iter_header_list()):
             length = min(len(mbox), len(headers))
             if len(mbox) != len(headers):
                 logger.warning(
