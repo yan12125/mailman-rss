@@ -60,7 +60,7 @@ def get_config(args):
 def main():
     args = parse_args()
     config = get_config(args)
-    logging.basicConfig(level=getattr(logging, args.loglevel.upper()),
+    logging.basicConfig(level=getattr(logging, config["loglevel"].upper()),
                         stream=sys.stderr)
     logger.debug("config = {}".format(config))
 
