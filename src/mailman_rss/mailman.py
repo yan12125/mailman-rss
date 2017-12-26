@@ -61,8 +61,8 @@ class MailmanArchive(object):
         r = requests.get(os.path.join(self.archive_url, date_url))
         page = BeautifulSoup(r.content, "html.parser")
         for a in page.find_all("a", href=re.compile(r"\d+\.html")):
-            author = a.next_sibling.content
-            subject = a.content
+            author = a.find_next_sibling("i").text.strip()
+            subject = a.text.strip()
             url = os.path.join(base_url, a.get("href"))
             yield MessageHeader(author, subject, url)
 
