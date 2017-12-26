@@ -16,6 +16,7 @@ import requests
 import os
 import re
 import tempfile
+import itertools
 
 with hooks():
     from urllib.parse import urlparse
@@ -51,63 +52,78 @@ class MailmanArchive(object):
     def title(self):
         return self._soup.html.head.title
 
+    def iter_header_list(self):
+        for a in self._soup.find_all("a", href=re.compile(r".*/date.html")):
+            yield list(self._iter_month_headers(a.get("href")))
+
+    def _iter_month_headers(self, date_url):
+        base_url = os.path.join(self.archive_url, os.path.dirname(date_url))
+        r = requests.get(os.path.join(self.archive_url, date_url))
+        page = BeautifulSoup(r.content, "html.parser")
+        for a in page.find_all("a", href=re.compile(r"\d+\.html")):
+            author = a.next_sibling.content
+            subject = a.content
+            url = os.path.join(base_url, a.get("href"))
+            yield MessageHeader(author, subject, url)
+
     def iter_mboxes(self):
-        for a in self._soup.findAll("a", href=re.compile(r".*txt(.gz)?")):
+        for a in self._soup.find_all("a", href=re.compile(r".*txt(.gz)?")):
             url = a.get("href")
             if not url.endswith(".gz"):
                 url = url + ".gz"
             gzip_url = os.path.join(self.archive_url, url)
-            dates_url = gzip_url.replace(".txt.gz", "/date.html")
-            yield self._get_month(gzip_url, dates_url)
+            yield self._get_month(gzip_url)
 
-    def _get_month(self, gzip_url, date_url):
-        r = requests.get(date_url)
-        date_html = BeautifulSoup(r.content, "html.parser")
-        anchors = date_html.find_all(
-            "a", href=re.compile(r"^\d+\.html$"))
-        date_base_url = os.path.dirname(date_url)
-        message_urls = [os.path.join(date_base_url, a.get("href"))
-                        for a in anchors]
-
+    def _get_month(self, gzip_url):
         r = requests.get(gzip_url, stream=True)
         zipped_mbox = gzip.GzipFile(fileobj=io.BytesIO(r.raw.read())).read()
         with tempfile.NamedTemporaryFile() as f:
             f.write(zipped_mbox)
             f.flush()
             mbox = mailbox.mbox(f.name)
-            if len(mbox) != len(message_urls):
-                logger.warning(
-                    "Mismatched mbox size with message urls: {} vs {}".format(
-                        len(mbox), len(message_urls)))
-            return mbox, message_urls
+            return mbox
+
+    def iter_headers(self):
+        for headers in self.iter_header_list():
+            for header in headers:
+                yield header
 
     def iter_messages(self):
-        for mbox, message_urls in self.iter_mboxes():
-            length = min(len(mbox), len(message_urls))
+        for mbox, headers in itertools.izip(self.iter_mboxes(),
+                                            self.iter_header_list()):
+            length = min(len(mbox), len(headers))
+            if len(mbox) != len(headers):
+                logger.warning(
+                    "Unmatched header and mbox size: "
+                    "mbox={} vs headers={}".format(len(mbox), len(headers)))
             for index in reversed(range(length)):
                 if hasattr(mbox, "get_bytes"):
-                    yield MailmanMessage(
+                    yield Message(
                         self,
-                        message_urls[index],
+                        headers[index].url,
                         mbox.get_bytes(index).decode(self.encoding))
                 else:
-                    yield MailmanMessage(
+                    yield Message(
                         self,
-                        message_urls[index],
+                        headers[index].url,
                         mbox.get_string(index))
 
 
-class Attachment(namedtuple("_Attachment", "url, mime_type, size")):
+class MessageHeader(namedtuple("_MessageHeader", "author subject url")):
     pass
 
 
-class MailmanMessage(mailbox.mboxMessage, object):
+class Attachment(namedtuple("_Attachment", "url mime_type size")):
+    pass
+
+
+class Message(mailbox.mboxMessage, object):
     """
     Mail message that wraps `mailbox.mboxMessage`.
     """
 
     def __init__(self, archive, url, *args):
-        super(MailmanMessage, self).__init__(*args)
+        super(Message, self).__init__(*args)
         self._url = url
         self._archive = archive
 
