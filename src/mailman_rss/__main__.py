@@ -49,7 +49,7 @@ def get_config(args):
         access_token_secret=None
     )
     if args.config:
-        with open(args.config, "r") as f:
+        with open(args.config, "r", encoding="utf-8") as f:
             config.update(json.load(f))
     for key in config:
         if hasattr(args, key) and getattr(args, key):
@@ -77,6 +77,9 @@ def main():
                           consumer_secret=config["consumer_secret"],
                           access_token_key=config["access_token_key"],
                           access_token_secret=config["access_token_secret"])
+        if not api.VerifyCredentials():
+            logger.error("Invalid credentials: {}".format(config))
+            return
         scraper = HeaderScraper(config["archive_url"], config["db"])
         scraper.fetch(max_items=config["max_items"])
         logger.info("Unread items: {}".format(scraper.count(unread=True)))
