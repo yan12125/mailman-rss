@@ -73,8 +73,8 @@ Twitter example: twitter bot requires an application token and a storage space.
       "archive_url": "http://example.com/mailman/list/",
       "db": "/home/user/scraper.sqlite3",
       "max_items": 10,
-      "cosumer_key": "XXXXXXXXXXXXXXXXXXXXXXXXXX",
-      "cosumer_secret_key": "XXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "consumer_key": "XXXXXXXXXXXXXXXXXXXXXXXXXX",
+      "consumer_secret": "XXXXXXXXXXXXXXXXXXXXXXXXXX",
       "access_token_key": "XXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXX",
       "access_token_secret": "XXXXXXXXXXXXXXXXXXXXXXXXXX"
     }
@@ -90,6 +90,7 @@ The command should be run from cron.
     crontab -l
 
     0 * * * * mailman-rss --archive-url http://example.com/mailman/list/ > /var/www/archive.rss
+    0 * * * * mailman-rss --config /home/user/twitter-bot.json
 
 Test
 ----
