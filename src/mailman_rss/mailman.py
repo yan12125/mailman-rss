@@ -26,7 +26,7 @@ with hooks():
     from urllib.parse import urlparse
 
 
-logger = getLogger(__name__)
+logger = getLogger(__file__)
 
 
 class MailmanArchive(object):
@@ -76,7 +76,10 @@ class MailmanArchive(object):
             if not url.endswith(".gz"):
                 url = url + ".gz"
             gzip_url = os.path.join(self.archive_url, url)
-            yield self._get_month(gzip_url)
+            try:
+                yield self._get_month(gzip_url)
+            except OSError as e:
+                logger.error("{}".format(e))
 
     def _get_month(self, gzip_url):
         r = requests.get(gzip_url, stream=True)

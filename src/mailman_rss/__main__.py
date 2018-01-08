@@ -84,12 +84,17 @@ def main():
         scraper.fetch(max_items=config["max_items"])
         logger.info("Unread items: {}".format(scraper.count(unread=True)))
         for header in scraper.iter_unread(True):
-            subject = "{} {}".format(header["subject"], header["author"])
-            if len(header["subject"]) > 139:
-                subject = subject[:138] + "\u2026"
-            status = "{} {}".format(subject, header["url"])
+            status = "{} {} {}".format(
+                header["subject"], header["author"], header["url"])
+            if len(status) >= 140:
+                status = "{} {}".format(header["subject"], header["author"])
+                status = status[:(140 - len(header["url"] - 2))]
+                status = "{}\u2026 {}".format(status, header["url"])
             logger.info("Post: {}".format(status))
-            api.PostUpdate(status)
+            try:
+                api.PostUpdate(status, attachment_url=header["url"])
+            except twitter.error.TwitterError as e:
+                logger.error("{}".format(e))
 
 
 if __name__ == '__main__':
