@@ -88,7 +88,7 @@ def main():
                 header["subject"], header["author"], header["url"])
             if len(status) >= 140:
                 status = "{} {}".format(header["subject"], header["author"])
-                status = status[:(140 - len(header["url"] - 2))]
+                status = status[:(140 - len(header["url"]) - 2)]
                 status = "{}\u2026 {}".format(status, header["url"])
             logger.info("Post: {}".format(status))
             try:
