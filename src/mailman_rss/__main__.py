@@ -92,7 +92,7 @@ def main():
                 status = "{}\u2026 {}".format(status, header["url"])
             logger.info("Post: {}".format(status))
             try:
-                api.PostUpdate(status, attachment_url=header["url"])
+                api.PostUpdate(status)
             except twitter.error.TwitterError as e:
                 logger.error("{}".format(e))
 
