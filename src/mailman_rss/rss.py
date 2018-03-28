@@ -45,10 +45,15 @@ class RSSWriter(object):
         else:
             self.doc.writexml(self.fp, encoding="utf-8")
 
-    def _add_element(self, parent, name, content="", **kwargs):
+    def _add_element(self, parent, name, content="",
+                     use_cdata=False, **kwargs):
         elem = parent.appendChild(self.doc.createElement(name))
         if content:
-            elem.appendChild(self.doc.createTextNode(escape(content)))
+            if use_cdata:
+                child = self.doc.createCDATASection(content)
+            else:
+                child = self.doc.createTextNode(escape(content))
+            elem.appendChild(child)
         for key in kwargs:
             elem.attributes[key] = escape(kwargs[key])
         return elem
@@ -71,7 +76,9 @@ class RSSWriter(object):
         self._add_element(item, "pubDate", self._format_date(message.date))
         self._add_element(item, "guid", message.message_id,
                           isPermaLink="false")
-        self._add_element(item, "description", message.body)
+        self._add_element(item, "description",
+                          message.body.replace('\n', '<br />\n'),
+                          use_cdata=True)
         self._add_element(item, "link", message.url)
         for attachment in message.attachments():
             self._add_element(item, "enclosure",
