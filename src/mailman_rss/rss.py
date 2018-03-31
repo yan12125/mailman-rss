@@ -36,7 +36,13 @@ class RSSWriter(object):
         channel = self._add_element(rss, "channel")
         self._write_header(channel, archive)
         for index, message in enumerate(archive.iter_messages()):
-            self._write_item(channel, message)
+            # If a mail has "From ..." in its body, mailbox.py gets confused
+            # and split it into two mails. In this case headers (date,
+            # message_id, ...) may be missing.
+            try:
+                self._write_item(channel, message)
+            except AttributeError:
+                continue
             if index + 1 >= self.max_items:
                 break
         if pretty:
